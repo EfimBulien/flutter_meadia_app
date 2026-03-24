@@ -1,11 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:uuid/uuid.dart';
 import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter_meadia_app/models/music.dart';
 import 'package:flutter_meadia_app/services/database_service.dart';
+import 'package:file_picker/file_picker.dart';
 
 const uuid = Uuid();
 
@@ -18,11 +20,18 @@ class MusicSection extends StatefulWidget {
 
 class _MusicSectionState extends State<MusicSection> {
   late List<Music> musicList = [];
-  final ImagePicker _picker = ImagePicker();
   final AudioPlayer _audioPlayer = AudioPlayer();
   Music? _currentlyPlaying;
   bool _isPlaying = false;
   Duration _currentPosition = Duration.zero;
+  Duration _totalDuration = Duration.zero;
+  bool _isSeeking = false;
+  bool _isCompleted = false;
+
+  late final StreamSubscription<PlayerState> _playerStateSubscription;
+  late final StreamSubscription<Duration> _durationSubscription;
+  late final StreamSubscription<Duration> _positionSubscription;
+  late final StreamSubscription<void> _completeSubscription;
 
   @override
   void initState() {
@@ -32,19 +41,43 @@ class _MusicSectionState extends State<MusicSection> {
   }
 
   void _setupAudioListener() {
-    _audioPlayer.onPlayerStateChanged.listen((PlayerState state) {
+    _playerStateSubscription = _audioPlayer.onPlayerStateChanged.listen((
+      PlayerState state,
+    ) {
+      if (!mounted) return;
       setState(() {
         _isPlaying = state == PlayerState.playing;
+        if (state == PlayerState.playing) {
+          _isCompleted = false;
+        }
       });
     });
 
-    _audioPlayer.onDurationChanged.listen((Duration duration) {
-      // Duration is tracked internally by audioPlayer
+    _durationSubscription = _audioPlayer.onDurationChanged.listen((
+      Duration duration,
+    ) {
+      if (!mounted) return;
+      setState(() {
+        _totalDuration = duration;
+      });
     });
 
-    _audioPlayer.onPositionChanged.listen((Duration position) {
+    _positionSubscription = _audioPlayer.onPositionChanged.listen((
+      Duration position,
+    ) {
+      if (!mounted) return;
+      if (!_isSeeking) {
+        setState(() {
+          _currentPosition = position;
+        });
+      }
+    });
+
+    _completeSubscription = _audioPlayer.onPlayerComplete.listen((event) {
+      if (!mounted) return;
       setState(() {
-        _currentPosition = position;
+        _isPlaying = false;
+        _isCompleted = true;
       });
     });
   }
@@ -57,27 +90,42 @@ class _MusicSectionState extends State<MusicSection> {
 
   Future<void> _pickAudioFile() async {
     try {
-      final XFile? audio = await _picker.pickVideo(source: ImageSource.gallery);
-      if (audio != null) {
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.audio,
+        allowMultiple: false,
+      );
+
+      if (result != null && result.files.single.path != null) {
+        final file = result.files.single;
+        final path = file.path!;
+
+        String title = file.name;
+        int lastDotIndex = title.lastIndexOf('.');
+        if (lastDotIndex != -1) {
+          title = title.substring(0, lastDotIndex);
+        }
+
         final music = Music(
           id: uuid.v4(),
-          title: audio.name.replaceAll('.mp4', '').replaceAll('.mov', ''),
-          filePath: audio.path,
+          title: title,
+          filePath: path,
           isUrl: false,
           createdAt: DateTime.now(),
         );
+
         await DatabaseService.addMusic(music);
         _loadMusic();
+
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Audio file added')),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('Audio file added')));
         }
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error picking audio: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error picking audio: $e')));
     }
   }
 
@@ -106,28 +154,38 @@ class _MusicSectionState extends State<MusicSection> {
         );
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error downloading audio: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error downloading audio: $e')));
     }
   }
 
   Future<void> _playMusic(Music music) async {
     try {
       if (_currentlyPlaying?.id == music.id && _isPlaying) {
+        // Currently playing, pause it
         await _audioPlayer.pause();
+      } else if (_currentlyPlaying?.id != music.id) {
+        // Different track, stop current and play new
+        await _audioPlayer.stop();
+        await _audioPlayer.play(DeviceFileSource(music.filePath));
+        setState(() => _currentlyPlaying = music);
       } else {
-        if (_currentlyPlaying?.id != music.id) {
+        // Same track - either paused or completed
+        if (_isCompleted) {
+          // Track finished, stop and restart from beginning
+          await _audioPlayer.stop();
           await _audioPlayer.play(DeviceFileSource(music.filePath));
-          setState(() => _currentlyPlaying = music);
+          setState(() => _isCompleted = false);
         } else {
+          // Track is paused, resume
           await _audioPlayer.resume();
         }
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error playing audio: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error playing audio: $e')));
     }
   }
 
@@ -142,9 +200,9 @@ class _MusicSectionState extends State<MusicSection> {
     }
     _loadMusic();
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Music deleted')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Music deleted')));
     }
   }
 
@@ -185,10 +243,7 @@ class _MusicSectionState extends State<MusicSection> {
           TextButton(
             onPressed: () {
               if (urlController.text.isNotEmpty) {
-                _addAudioFromUrl(
-                  urlController.text,
-                  titleController.text,
-                );
+                _addAudioFromUrl(urlController.text, titleController.text);
                 Navigator.pop(context);
               }
             },
@@ -211,11 +266,7 @@ class _MusicSectionState extends State<MusicSection> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(
-                    Icons.music_note,
-                    size: 80,
-                    color: Colors.grey[400],
-                  ),
+                  Icon(Icons.music_note, size: 80, color: Colors.grey[400]),
                   const SizedBox(height: 20),
                   Text(
                     'No music yet',
@@ -226,8 +277,7 @@ class _MusicSectionState extends State<MusicSection> {
             )
           : Column(
               children: [
-                if (_currentlyPlaying != null)
-                  _buildMiniPlayer(),
+                if (_currentlyPlaying != null) _buildMiniPlayer(),
                 Expanded(
                   child: ListView.builder(
                     itemCount: musicList.length,
@@ -299,7 +349,9 @@ class _MusicSectionState extends State<MusicSection> {
               ),
               IconButton(
                 icon: Icon(
-                  _isPlaying ? Icons.pause : Icons.play_arrow,
+                  _isPlaying
+                      ? Icons.pause
+                      : (_isCompleted ? Icons.replay : Icons.play_arrow),
                   size: 28,
                 ),
                 onPressed: () => _playMusic(_currentlyPlaying!),
@@ -313,35 +365,40 @@ class _MusicSectionState extends State<MusicSection> {
   }
 
   Widget _buildAudioProgressIndicator() {
-    return StreamBuilder<Duration>(
-      stream: _audioPlayer.onPositionChanged,
-      builder: (context, snapshot) {
-        Duration position = snapshot.data ?? Duration.zero;
-        return StreamBuilder<Duration>(
-          stream: _audioPlayer.onDurationChanged,
-          builder: (context, snapshot) {
-            Duration total = snapshot.data ?? Duration.zero;
-            return Padding(
-              padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 0),
-              child: SliderTheme(
-                data: SliderThemeData(
-                  trackHeight: 4,
-                  thumbShape: const RoundSliderThumbShape(
-                    enabledThumbRadius: 8,
-                  ),
-                ),
-                child: Slider(
-                  value: position.inMilliseconds.toDouble(),
-                  max: total.inMilliseconds.toDouble(),
-                  onChanged: (value) {
-                    _audioPlayer.seek(Duration(milliseconds: value.toInt()));
-                  },
-                ),
-              ),
-            );
+    double positionValue = _currentPosition.inMilliseconds.toDouble();
+    double totalValue = _totalDuration.inMilliseconds.toDouble();
+
+    // Ensure value is between min (0) and max
+    if (totalValue <= 0) {
+      totalValue = 1; // Prevent invalid range
+    }
+    // Clamp position to valid range [0, total]
+    positionValue = positionValue.clamp(0.0, totalValue);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 0),
+      child: SliderTheme(
+        data: SliderThemeData(
+          trackHeight: 4,
+          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+        ),
+        child: Slider(
+          value: positionValue,
+          max: totalValue,
+          onChangeStart: (value) {
+            _isSeeking = true;
           },
-        );
-      },
+          onChanged: (value) {
+            setState(() {
+              _currentPosition = Duration(milliseconds: value.toInt());
+            });
+          },
+          onChangeEnd: (value) {
+            _isSeeking = false;
+            _audioPlayer.seek(Duration(milliseconds: value.toInt()));
+          },
+        ),
+      ),
     );
   }
 
@@ -379,10 +436,14 @@ class _MusicSectionState extends State<MusicSection> {
           children: [
             IconButton(
               icon: Icon(
-                isPlaying && _isPlaying ? Icons.pause : Icons.play_arrow,
-                color: isPlaying
-                    ? Theme.of(context).colorScheme.primary
-                    : null,
+                isPlaying && _isPlaying
+                    ? Icons.pause
+                    : (isPlaying &&
+                              _isCompleted &&
+                              _currentlyPlaying?.id == music.id
+                          ? Icons.replay
+                          : Icons.play_arrow),
+                color: isPlaying ? Theme.of(context).colorScheme.primary : null,
               ),
               onPressed: () => _playMusic(music),
             ),
@@ -405,6 +466,10 @@ class _MusicSectionState extends State<MusicSection> {
 
   @override
   void dispose() {
+    _playerStateSubscription.cancel();
+    _durationSubscription.cancel();
+    _positionSubscription.cancel();
+    _completeSubscription.cancel();
     _audioPlayer.dispose();
     super.dispose();
   }
