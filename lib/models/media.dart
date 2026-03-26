@@ -11,7 +11,7 @@ class Media extends HiveObject {
   late String filePath;
 
   @HiveField(2)
-  late String mediaType; // 'image' or 'video'
+  late String mediaType;
 
   @HiveField(3)
   late DateTime createdAt;
@@ -29,7 +29,7 @@ class Media extends HiveObject {
   String? fileName;
 
   @HiveField(8)
-  int? duration; // Duration in milliseconds for videos
+  int? duration;
 
   Media({
     required this.id,

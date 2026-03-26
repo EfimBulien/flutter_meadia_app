@@ -368,11 +368,10 @@ class _MusicSectionState extends State<MusicSection> {
     double positionValue = _currentPosition.inMilliseconds.toDouble();
     double totalValue = _totalDuration.inMilliseconds.toDouble();
 
-    // Ensure value is between min (0) and max
     if (totalValue <= 0) {
-      totalValue = 1; // Prevent invalid range
+      totalValue = 1;
     }
-    // Clamp position to valid range [0, total]
+    
     positionValue = positionValue.clamp(0.0, totalValue);
 
     return Padding(

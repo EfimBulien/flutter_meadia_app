@@ -9,7 +9,6 @@ class DatabaseService {
   static Future<void> init() async {
     await Hive.initFlutter();
     
-    // Register adapters
     if (!Hive.isAdapterRegistered(0)) {
       Hive.registerAdapter(MediaAdapter());
     }
@@ -17,12 +16,10 @@ class DatabaseService {
       Hive.registerAdapter(MusicAdapter());
     }
 
-    // Open boxes
     await Hive.openBox<Media>(mediaBoxName);
     await Hive.openBox<Music>(musicBoxName);
   }
 
-  // Media CRUD Operations
   static Future<void> addMedia(Media media) async {
     final box = Hive.box<Media>(mediaBoxName);
     await box.put(media.id, media);
@@ -50,7 +47,6 @@ class DatabaseService {
     await box.put(id, media);
   }
 
-  // Music CRUD Operations
   static Future<void> addMusic(Music music) async {
     final box = Hive.box<Music>(musicBoxName);
     await box.put(music.id, music);
@@ -78,7 +74,6 @@ class DatabaseService {
     await box.put(id, music);
   }
 
-  // Utility methods
   static Future<void> clearAllData() async {
     await Hive.box<Media>(mediaBoxName).clear();
     await Hive.box<Music>(musicBoxName).clear();

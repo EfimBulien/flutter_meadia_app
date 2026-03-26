@@ -11,10 +11,10 @@ class Music extends HiveObject {
   late String title;
 
   @HiveField(2)
-  late String filePath; // Local path or URL
+  late String filePath;
 
   @HiveField(3)
-  late bool isUrl; // true if filePath is a URL, false if local file
+  late bool isUrl;
 
   @HiveField(4)
   late DateTime createdAt;
@@ -26,7 +26,7 @@ class Music extends HiveObject {
   String? album;
 
   @HiveField(7)
-  int? duration; // Duration in milliseconds
+  int? duration;
 
   @HiveField(8)
   String? thumbnailPath;

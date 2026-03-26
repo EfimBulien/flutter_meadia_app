@@ -527,7 +527,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
                                           color: Colors.white,
                                         ),
                                         onPressed: () {
-                                          // Implement fullscreen if needed
                                         },
                                       ),
                                     ],

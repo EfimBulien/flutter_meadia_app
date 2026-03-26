@@ -28,14 +28,11 @@ class LocationService {
 
       return await _location.getLocation();
     } catch (e) {
-      print('Error getting location: $e');
       return null;
     }
   }
 
   static Future<String> getLocationAddress(double latitude, double longitude) async {
-    // Simple implementation using coordinates
-    // In production, use a reverse geocoding service
     return '$latitude, $longitude';
   }
 }
